@@ -184,7 +184,7 @@ class SCope(s_pb2_grpc.MainServicer):
         collapsedResults: Dict[Any, Any] = OrderedDict()
         if cross_species == "":
             for r in res:
-                if type(search_space[r]) == list:
+                if type(search_space[r]) == set:
                     search_space[r] = tuple(search_space[r])
                 if (search_space[r], r[2]) not in collapsedResults.keys():
                     collapsedResults[(search_space[r], r[2])] = [r[1]]

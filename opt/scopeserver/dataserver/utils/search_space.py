@@ -108,9 +108,9 @@ class SearchSpace(dict):
                 annotations = [f'{an["data"]["annotation_label"]} ({an["data"]["obo_id"]})' for an in annotations]
                 for annotation in annotations:
                     if (annotation.casefold(), annotation, element_type) in self.keys():
-                        self[(annotation.casefold(), annotation, element_type)].append(f"{clusteringID}_{clusterID}")
+                        self[(annotation.casefold(), annotation, element_type)].add(f"{clusteringID}_{clusterID}")
                     else:
-                        self[(annotation.casefold(), annotation, element_type)] = [f"{clusteringID}_{clusterID}"]
+                        self[(annotation.casefold(), annotation, element_type)] = set([f"{clusteringID}_{clusterID}"])
 
     def add_regulons(self) -> None:
         if self.loom.has_motif_and_track_regulons():
@@ -138,9 +138,9 @@ class SearchSpace(dict):
                 genes = self.loom.get_regulon_genes(regulon=regulon)
                 for gene in genes:
                     if (gene.casefold(), gene, element_type) in self.keys():
-                        self[(gene.casefold(), gene, element_type)].append(regulon)
+                        self[(gene.casefold(), gene, element_type)].add(regulon)
                     else:
-                        self[(gene.casefold(), gene, element_type)] = [regulon]
+                        self[(gene.casefold(), gene, element_type)] = set([regulon])
         if element_type == "marker_gene":
             searchable_clustering_ids = [
                 x.split("_")[-1] for x in loom.ra.keys() if bool(re.search("ClusterMarkers_[0-9]+$", x))
@@ -151,17 +151,17 @@ class SearchSpace(dict):
                     genes = self.loom.get_cluster_marker_genes(clustering, cluster)
                     for gene in genes:
                         if (gene.casefold(), gene, element_type) in self.keys():
-                            self[(gene.casefold(), gene, element_type)].append(f"{clustering}_{cluster}")
+                            self[(gene.casefold(), gene, element_type)].add(f"{clustering}_{cluster}")
                         else:
-                            self[(gene.casefold(), gene, element_type)] = [f"{clustering}_{cluster}"]
+                            self[(gene.casefold(), gene, element_type)] = set([f"{clustering}_{cluster}"])
         if element_type == "region_gene_link":
             for n, region in enumerate(self.loom.get_genes()):
                 gene = self.loom.loom_connection.ra.linkedGene[n]
                 if gene != "":
                     if (gene.casefold(), gene, element_type) in self.keys():
-                        self[(gene.casefold(), gene, element_type)].append(region)
+                        self[(gene.casefold(), gene, element_type)].add(region)
                     else:
-                        self[(gene.casefold(), gene, element_type)] = [region]
+                        self[(gene.casefold(), gene, element_type)] = set([region])
 
     def add_annotations(self) -> None:
         annotations = []
