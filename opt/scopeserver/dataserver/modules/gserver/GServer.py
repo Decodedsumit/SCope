@@ -140,15 +140,15 @@ class SCope(s_pb2_grpc.MainServicer):
         start_time = time.time()
 
         if query.startswith("hsap\\"):
-            search_space = loom.hsap_ss
+            search_space = loom.hsap_ss.copy()
             cross_species = "hsap"
             query = query[5:]
         elif query.startswith("mmus\\"):
-            search_space = loom.mmus_ss
+            search_space = loom.mmus_ss.copy()
             cross_species = "mmus"
             query = query[5:]
         else:
-            search_space = loom.ss
+            search_space = loom.ss.copy()
             cross_species = ""
 
         # Filter the genes by the query
