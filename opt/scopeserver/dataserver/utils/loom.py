@@ -31,9 +31,8 @@ Clustering = TypedDict(
 
 
 class Loom:
-    def __init__(self, partial_md5_hash, file_path, abs_file_path, loom_connection, loom_file_handler):
+    def __init__(self, file_path, abs_file_path, loom_connection, loom_file_handler):
         self.lfh = loom_file_handler
-        self.partial_md5_hash = partial_md5_hash
         self.file_path = file_path
         self.abs_file_path = abs_file_path
         self.loom_connection = loom_connection
@@ -43,29 +42,48 @@ class Loom:
         # Metrics
         self.nUMI = None
         self.species, self.gene_mappings = self.infer_species()
-        self.ss_pickle_name = os.path.join(os.path.dirname(self.abs_file_path), partial_md5_hash + ".ss_pkl")
+        self.ss_pickle_name = self.abs_file_path + ".ss_pkl"
+        self.load_ss(self.ss_pickle_name)
 
+    def load_ss(self, ss_pickle_name: str):
         try:
             with open(self.ss_pickle_name, "rb") as fh:
-                logger.debug(f"Loading prebuilt SS for {file_path} from {self.ss_pickle_name}")
+                logger.debug(f"Loading prebuilt SS for {self.file_path} from {self.ss_pickle_name}")
                 self.ss = pickle.load(fh)
-
+            logger.debug(f"Building hsap Search Spaces for {self.file_path}")
+            self.hsap_ss = ss.SearchSpace(loom=self, cross_species="hsap").build()
+            logger.debug(f"Building mmus Search Spaces for {self.file_path}")
+            self.mmus_ss = ss.SearchSpace(loom=self, cross_species="mmus").build()
         except (EOFError, FileNotFoundError):
-            logger.debug(f"Building Search Spaces for {file_path}")
-            if self.species == "dmel":
-                logger.debug(f"Building hsap Search Spaces for {file_path}")
-                self.hsap_ss = ss.SearchSpace(loom=self, cross_species="hsap").build()
-                logger.debug(f"Building mmus Search Spaces for {file_path}")
+            self.build_all_ss()
 
-                self.mmus_ss = ss.SearchSpace(loom=self, cross_species="mmus").build()
-            logger.debug(f"Building self Search Spaces for {file_path}")
+    def build_all_ss(self):
+        logger.debug(f"Building Search Spaces for {self.file_path}")
+        if self.species == "dmel":
+            logger.debug(f"Building hsap Search Spaces for {self.file_path}")
+            self.hsap_ss = ss.SearchSpace(loom=self, cross_species="hsap").build()
+            logger.debug(f"Building mmus Search Spaces for {self.file_path}")
+            self.mmus_ss = ss.SearchSpace(loom=self, cross_species="mmus").build()
+        logger.debug(f"Building self Search Spaces for {self.file_path}")
 
-            self.ss = ss.SearchSpace(loom=self).build()
-            self.ss.loom = None  # Remove loom connection to enable pickling
-            logger.debug(f"Built all Search Spaces for {file_path}")
-            with open(self.ss_pickle_name, "wb") as fh:
-                logger.debug(f"Writing prebuilt SS for {file_path} to {self.ss_pickle_name}")
-                pickle.dump(self.ss, fh)
+        self.ss = ss.SearchSpace(loom=self).build()
+        self.write_ss()
+
+    def write_ss(self):
+        self.ss.loom = None  # Remove loom connection to enable pickling
+        logger.debug(f"Built all Search Spaces for {self.file_path}")
+        with open(self.ss_pickle_name, "wb") as fh:
+            logger.debug(f"Writing prebuilt SS for {self.file_path} to {self.ss_pickle_name}")
+            pickle.dump(self.ss, fh)
+
+    def update_ss(self, update: str):
+        self.ss.loom = self
+        self.ss.meta_data = self.get_meta_data()
+        if update == "clusterings":
+            self.ss.add_clusterings()
+        elif update == "cluster_annotations":
+            self.ss.add_cluster_annotations()
+        self.write_ss()
 
     def get_connection(self):
         return self.loom_connection
@@ -114,15 +132,11 @@ class Loom:
         except AttributeError:
             return json.loads(zlib.decompress(base64.b64decode(meta.encode("ascii"))).decode("ascii"))
 
-    def update_metadata(self, meta, keep_ss: bool = False):
-        self.loom_connection = self.lfh.change_loom_mode(
-            self.file_path, mode="r+", partial_md5_hash=self.partial_md5_hash
-        )
+    def update_metadata(self, meta):
+        self.loom_connection = self.lfh.change_loom_mode(self.file_path, mode="r+")
         orig_metaJson = self.get_meta_data()
         self.loom_connection.attrs["MetaData"] = json.dumps(meta)
-        self.loom_connection = self.lfh.change_loom_mode(
-            self.file_path, mode="r", partial_md5_hash=self.partial_md5_hash, keep_ss=keep_ss
-        )
+        self.loom_connection = self.lfh.change_loom_mode(self.file_path, mode="r")
         new_metaJson = self.get_meta_data()
         return orig_metaJson != new_metaJson
 
@@ -140,6 +154,8 @@ class Loom:
 
         metaJson["clusterings"][clustering_n]["clusters"][cluster_n]["description"] = new_annotation_name
         self.update_metadata(metaJson)
+
+        self.update_ss(update="clusterings")
 
         if (
             self.get_meta_data()["clusterings"][clustering_n]["clusters"][cluster_n]["description"]
@@ -220,6 +236,8 @@ class Loom:
             ]
 
         self.update_metadata(metaJson)
+
+        self.update_ss(update="cluster_annotations")
 
         if (
             cell_type_annotation
@@ -304,8 +322,9 @@ class Loom:
             return (False, "Could not find cell type annotation to change vote")
 
         try:
-            self.update_metadata(metaJson, keep_ss=True)
-        except OSError:
+            self.update_metadata(metaJson)
+        except OSError as e:
+            logger.error(e)
             return (False, "Couldn't write metadata!")
 
         if check_data == self.get_meta_data():
@@ -397,19 +416,16 @@ class Loom:
 
         new_clusterings = Loom.dfToNamedMatrix(clusterings)
 
-        self.loom_connection = self.lfh.change_loom_mode(
-            self.file_path, mode="r+", partial_md5_hash=self.partial_md5_hash
-        )
+        self.loom_connection = self.lfh.change_loom_mode(self.file_path, mode="r+")
         loom = self.loom_connection
         loom.ca.Clusterings = new_clusterings
         loom.attrs["MetaData"] = json.dumps(metaJson)
-        self.loom_connection = self.lfh.change_loom_mode(
-            self.file_path, mode="r", partial_md5_hash=self.partial_md5_hash
-        )
-        loom = self.loom_connection
+        self.loom_connection = self.lfh.change_loom_mode(self.file_path, mode="r")
+
+        self.update_ss(update="clusterings")
 
         try:
-            new_clustering_data = self.get_clustering_by_id(new_clustering_meta["id"])
+            _ = self.get_clustering_by_id(new_clustering_meta["id"])
             logger.debug("Success")
             return (True, "Success")
         except IndexError:
@@ -419,9 +435,7 @@ class Loom:
     def set_hierarchy(self, L1: str, L2: str, L3: str) -> bool:
         logger.info("Changing hierarchy name for {0}".format(self.get_abs_file_path()))
 
-        self.loom_connection = self.lfh.change_loom_mode(
-            self.file_path, mode="r+", partial_md5_hash=self.partial_md5_hash
-        )
+        self.loom_connection = self.lfh.change_loom_mode(self.file_path, mode="r+")
         loom = self.loom_connection
         attrs = self.loom_connection.attrs
 
@@ -430,9 +444,7 @@ class Loom:
         attrs["SCopeTreeL3"] = L3
 
         loom.attrs = attrs
-        self.loom_connection = self.lfh.change_loom_mode(
-            self.file_path, mode="r", partial_md5_hash=self.partial_md5_hash
-        )
+        self.loom_connection = self.lfh.change_loom_mode(self.file_path, mode="r")
         loom = self.loom_connection
         newAttrs = self.loom_connection.attrs
 
@@ -511,6 +523,7 @@ class Loom:
 
         loom.attrs["MetaData"] = json.dumps(metaJson)
         self.loom_connection = self.lfh.change_loom_mode(self.file_path, mode="r")
+        self.build_all_ss()
 
     def get_file_metadata(self):
         """Summarize in a dict what feature data the loom file contains.

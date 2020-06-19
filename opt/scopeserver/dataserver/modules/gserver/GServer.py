@@ -294,8 +294,6 @@ class SCope(s_pb2_grpc.MainServicer):
                 )
                 descriptions[r] = description
 
-            # if mapping[result] != result: change title and description to indicate synonym
-
         logger.debug("{0} genes matching '{1}'".format(len(res), query))
         logger.debug("{0:.5f} seconds elapsed ---".format(time.time() - start_time))
         final_res = {
@@ -827,8 +825,8 @@ class SCope(s_pb2_grpc.MainServicer):
                     if basename.endswith(".loom"):
                         abs_file_path = self.lfh.drop_loom(request.filePath)
                         try:
-                            partial_md5_hash = self.lfh.get_partial_md5_hash(abs_file_path, 10000)
-                            os.remove(os.path.join(os.path.dirname(abs_file_path), partial_md5_hash + ".ss_pkl"))
+                            os.remove(abs_file_path + ".ss_pkl")
+
                         except OSError as err:
                             logger.error(f"Could not delete search space pickle from {request.filePath}. {err}")
                     try:
